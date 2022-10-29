@@ -19,10 +19,11 @@ mod visitor;
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// jar-file to process
+    /// .jar file to process
     #[arg(short, long, value_name = "JAR_FILE")]
     jarfile: PathBuf,
 
+    /// regex to only process matching class names (applied to a FQCN like org/example/MyClass$InnerClass.class)
     #[arg(short, long, value_name = "REGEX")]
     class_name_regex: Option<Regex>,
 }
