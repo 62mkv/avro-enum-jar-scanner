@@ -1,5 +1,6 @@
 use std::path::PathBuf;
-use std::fs::File;
+use std::fs::{File, create_dir_all};
+use std::io;
 use clap::Parser;
 use tempdir::TempDir;
 use hlua::{Lua, LuaError};
@@ -61,15 +62,47 @@ impl ClassNameEvaluator for LuaEvaluator<'_> {
     }
 }
 
-fn list_zip_contents(reader: impl Read + Seek, class_name_evaluator: &mut dyn ClassNameEvaluator) -> anyhow::Result<()> {
+fn pause() {
+    let mut stdin = io::stdin();
+    let mut stdout = io::stdout();
+
+    // We want the cursor to stay at the end of the line, so we print without a newline and flush manually.
+    write!(stdout, "Press any key to continue...").unwrap();
+    stdout.flush().unwrap();
+
+    // Read a single byte and discard
+    let _ = stdin.read(&mut [0u8]).unwrap();
+}
+
+fn list_zip_contents(reader: impl Read + Seek, tmp_dir: &TempDir, class_name_evaluator: &mut dyn ClassNameEvaluator) -> anyhow::Result<()> {
     let mut zip = zip::ZipArchive::new(reader)?;
 
     for i in 0..zip.len() {
-        let file = zip.by_index(i)?;
-        if class_name_evaluator.evaluate_if_class_needed(file.name())? {
-            println!("Filename: {}", file.name());
+        let mut file = zip.by_index(i)?;
+        if file.is_file() {
+            if class_name_evaluator.evaluate_if_class_needed(file.name())? {
+                let path_to_extract = tmp_dir.path().join(file.mangled_name());
+                println!("Filename: {} is extracted to {}", file.name(), path_to_extract.display());
+                match path_to_extract.parent() {
+                    Some(path) => {
+                        println!("Will try to create path {}", path.display());
+                        create_dir_all(path)?;
+                    }
+                    None => {}
+                }
+                println!("About to create tmp file");
+                let mut target = File::create(path_to_extract)?;
+                let mut data = Vec::new();
+                println!("About to read from zip");
+                file.read_to_end(&mut data)?;
+                println!("About to write to tmp");
+                target.write_all(&data)?;
+            }
         }
     }
+
+
+    pause();
     Ok(())
 }
 
@@ -91,7 +124,7 @@ fn main() -> anyhow::Result<()> {
               Some(code) => Box::new(LuaEvaluator::new(code)),
               None => Box::new(Dummy{})
           };
-    list_zip_contents(jarfile, evaluator.deref_mut())?;
+    list_zip_contents(jarfile, &tmp_dir, evaluator.deref_mut())?;
   }
 
   tmp_dir.close()?;
