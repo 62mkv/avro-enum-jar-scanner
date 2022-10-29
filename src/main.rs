@@ -27,10 +27,22 @@ struct Cli {
     class_name_regex: Option<Regex>,
 }
 
+fn list_jars_in_classpath_order(classpath_index_file: ZipFile) -> anyhow::Result<Vec<String>> {
+    let re = Regex::new(r#"- "(.+)""#).unwrap();
+    Ok(io::BufReader::new(classpath_index_file)
+        .lines()
+        .map(|res| res.ok().unwrap())
+        .map(|ref line| re.captures(line).unwrap().get(0).unwrap().as_str())
+        .map(|filename| String::from(filename))
+        .collect())
+}
+
 fn list_zip_contents(reader: impl Read + Seek, source: &ClassSource, class_name_evaluator: &RegexEvaluator, enum_visitor: &mut EnumVisitor) -> anyhow::Result<()> {
+    const CLASSPATH_INDEX_FILENAME: &str = "BOOT-INF/classpath.idx";
+
     let mut zip = zip::ZipArchive::new(reader)?;
 
-    let classpath_index_found = zip.by_name("BOOT-INF/classpath.idx").ok().is_some();
+    let classpath_index_found = zip.by_name(CLASSPATH_INDEX_FILENAME).ok().is_some();
     if classpath_index_found {
         println!("Classpath index file is found!");
     }
@@ -46,6 +58,13 @@ fn list_zip_contents(reader: impl Read + Seek, source: &ClassSource, class_name_
         }
 
         for file_name in file_names {
+            let mut file = zip.by_name(&file_name)?;
+            process_file_from_zip(source, class_name_evaluator, enum_visitor, &mut file)?;
+        }
+
+        let mut classpath_index_file = zip.by_name(CLASSPATH_INDEX_FILENAME)?;
+        let nested_jars = list_jars_in_classpath_order(classpath_index_file);
+        for file_name in nested_jars? {
             let mut file = zip.by_name(&file_name)?;
             process_file_from_zip(source, class_name_evaluator, enum_visitor, &mut file)?;
         }
