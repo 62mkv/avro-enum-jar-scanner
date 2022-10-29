@@ -8,7 +8,7 @@ use anyhow::anyhow;
 use clap::Parser;
 use hlua::{Lua, LuaError};
 use noak::AccessFlags;
-use noak::reader::Class;
+use noak::reader::{cpool, Class, Field};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -74,16 +74,37 @@ fn list_zip_contents(reader: impl Read + Seek, class_name_evaluator: &mut dyn Cl
                 let mut data = Vec::new();
                 file.read_to_end(&mut data)?;
                 let mut class = Class::new(&*data)?;
-                let class_name = class.this_class_name()?.display();
                 let is_enum = class.access_flags()?.contains(AccessFlags::ENUM);
                 if is_enum {
-                    println!("Class {} is ENUM", class_name);
+                    process_enum(&mut class)?;
                 }
             } else if file.name().ends_with(".jar") {
                 let mut data = Vec::new();
                 file.read_to_end(&mut data)?;
                 list_zip_contents(io::Cursor::new(data), class_name_evaluator)?;
             }
+        }
+    }
+
+    Ok(())
+}
+
+fn process_enum(class: &mut Class) -> anyhow::Result<()> {
+    const ENUM_MEMBER_FLAGS: AccessFlags = AccessFlags::PUBLIC
+        .union(AccessFlags::STATIC)
+        .union(AccessFlags::FINAL);
+    let class_name = class.this_class_name()?.display();
+    let internal_type_name = class.this_class_name()?.to_str().ok_or(anyhow!("Error decoding type name {}", class_name))?;
+    let internal_type_name = format!("L{};", internal_type_name);
+    println!("Class {} is ENUM", class_name);
+    for field in class.fields()? {
+        let fld: &Field = &field?;
+        if fld.access_flags().contains(ENUM_MEMBER_FLAGS) {
+            let pool = class.pool()?;
+            let field_name: &cpool::Utf8 = pool.get(fld.name())?;
+            let descriptor: &cpool::Utf8 = pool.get(fld.descriptor())?;
+            if internal_type_name.eq(descriptor.content.to_str().unwrap_or("")) {}
+            println!("Enum member: {}", field_name.content.display());
         }
     }
 
