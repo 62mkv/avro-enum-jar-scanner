@@ -1,14 +1,14 @@
-use std::path::PathBuf;
-use std::fs::{File, create_dir_all};
+use std::fs::File;
 use std::io;
-use clap::Parser;
-use tempdir::TempDir;
-use hlua::{Lua, LuaError};
-use anyhow::anyhow;
 use std::io::prelude::*;
 use std::ops::DerefMut;
-use noak::reader::Class;
+use std::path::PathBuf;
+
+use anyhow::anyhow;
+use clap::Parser;
+use hlua::{Lua, LuaError};
 use noak::AccessFlags;
+use noak::reader::Class;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -22,7 +22,7 @@ struct Cli {
 
     /// Turn debugging information on
     #[arg(short, long, action = clap::ArgAction::Count)]
-    debug: u8
+    debug: u8,
 }
 
 trait ClassNameEvaluator {
@@ -31,20 +31,20 @@ trait ClassNameEvaluator {
     }
 }
 
-struct Dummy{}
+struct Dummy {}
 
 impl ClassNameEvaluator for Dummy {}
 
 struct LuaEvaluator<'a> {
     executor: Lua<'a>,
-    luacode: &'a str
+    luacode: &'a str,
 }
 
-impl <'a>LuaEvaluator<'a> {
+impl<'a> LuaEvaluator<'a> {
     pub fn new(code: &'a str) -> Self {
         let mut res = LuaEvaluator {
             executor: Lua::new(),
-            luacode: code
+            luacode: code,
         };
         res.executor.openlibs();
         res
@@ -64,26 +64,13 @@ impl ClassNameEvaluator for LuaEvaluator<'_> {
     }
 }
 
-fn pause() {
-    let mut stdin = io::stdin();
-    let mut stdout = io::stdout();
-
-    // We want the cursor to stay at the end of the line, so we print without a newline and flush manually.
-    write!(stdout, "Press any key to continue...").unwrap();
-    stdout.flush().unwrap();
-
-    // Read a single byte and discard
-    let _ = stdin.read(&mut [0u8]).unwrap();
-}
-
-fn list_zip_contents(reader: impl Read + Seek, tmp_dir: &TempDir, class_name_evaluator: &mut dyn ClassNameEvaluator) -> anyhow::Result<()> {
+fn list_zip_contents(reader: impl Read + Seek, class_name_evaluator: &mut dyn ClassNameEvaluator) -> anyhow::Result<()> {
     let mut zip = zip::ZipArchive::new(reader)?;
 
     for i in 0..zip.len() {
         let mut file = zip.by_index(i)?;
-        if file.is_file() && file.name().ends_with(".class") {
-            if class_name_evaluator.evaluate_if_class_needed(file.name())? {
-//                println!("Looking at file: {}", file.name());
+        if file.is_file() {
+            if file.name().ends_with(".class") && class_name_evaluator.evaluate_if_class_needed(file.name())? {
                 let mut data = Vec::new();
                 file.read_to_end(&mut data)?;
                 let mut class = Class::new(&*data)?;
@@ -92,6 +79,10 @@ fn list_zip_contents(reader: impl Read + Seek, tmp_dir: &TempDir, class_name_eva
                 if is_enum {
                     println!("Class {} is ENUM", class_name);
                 }
+            } else if file.name().ends_with(".jar") {
+                let mut data = Vec::new();
+                file.read_to_end(&mut data)?;
+                list_zip_contents(io::Cursor::new(data), class_name_evaluator)?;
             }
         }
     }
@@ -100,26 +91,20 @@ fn list_zip_contents(reader: impl Read + Seek, tmp_dir: &TempDir, class_name_eva
 }
 
 fn main() -> anyhow::Result<()> {
-  let cli = Cli::parse();
+    let cli = Cli::parse();
 
-  println!("JAR file to scan: {}", cli.jarfile.display());
-
-  let tmp_dir = TempDir::new("jar-scanner")?;
-  
-  {
+    println!("JAR file to scan: {}", cli.jarfile.display());
 
     let jarfile = cli.jarfile;
     let jarfile = File::open(jarfile)?;
 
 
     let mut evaluator: Box<dyn ClassNameEvaluator> =
-          match cli.luaclassfilter.as_ref() {
-              Some(code) => Box::new(LuaEvaluator::new(code)),
-              None => Box::new(Dummy{})
-          };
-    list_zip_contents(jarfile, &tmp_dir, evaluator.deref_mut())?;
-  }
+        match cli.luaclassfilter.as_ref() {
+            Some(code) => Box::new(LuaEvaluator::new(code)),
+            None => Box::new(Dummy {})
+        };
 
-  tmp_dir.close()?;
-  Ok(())
+    list_zip_contents(jarfile, evaluator.deref_mut())?;
+    Ok(())
 }
