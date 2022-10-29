@@ -32,8 +32,7 @@ fn list_jars_in_classpath_order(classpath_index_file: ZipFile) -> anyhow::Result
     Ok(io::BufReader::new(classpath_index_file)
         .lines()
         .map(|res| res.ok().unwrap())
-        .map(|ref line| re.captures(line).unwrap().get(0).unwrap().as_str())
-        .map(|filename| String::from(filename))
+        .map(|ref line| String::from(re.captures(line).unwrap().get(1).unwrap().as_str()))
         .collect())
 }
 
@@ -43,10 +42,6 @@ fn list_zip_contents(reader: impl Read + Seek, source: &ClassSource, class_name_
     let mut zip = zip::ZipArchive::new(reader)?;
 
     let classpath_index_found = zip.by_name(CLASSPATH_INDEX_FILENAME).ok().is_some();
-    if classpath_index_found {
-        println!("Classpath index file is found!");
-    }
-
     if matches!(source, ClassSource::Root) && classpath_index_found {
         let mut file_names: Vec<String> = Vec::with_capacity(100);
 
@@ -62,11 +57,17 @@ fn list_zip_contents(reader: impl Read + Seek, source: &ClassSource, class_name_
             process_file_from_zip(source, class_name_evaluator, enum_visitor, &mut file)?;
         }
 
-        let mut classpath_index_file = zip.by_name(CLASSPATH_INDEX_FILENAME)?;
+        let classpath_index_file = zip.by_name(CLASSPATH_INDEX_FILENAME)?;
         let nested_jars = list_jars_in_classpath_order(classpath_index_file);
         for file_name in nested_jars? {
-            let mut file = zip.by_name(&file_name)?;
-            process_file_from_zip(source, class_name_evaluator, enum_visitor, &mut file)?;
+            match zip.by_name(&file_name) {
+                Ok(mut file) => {
+                    process_file_from_zip(source, class_name_evaluator, enum_visitor, &mut file)?;
+                },
+                Err(e) => {
+                    eprintln!("{}", e);
+                }
+            }
         }
     } else {
         for i in 0..zip.len() {
@@ -106,8 +107,6 @@ fn process_file_from_zip(source: &ClassSource, class_name_evaluator: &RegexEvalu
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    println!("JAR file to scan: {}", cli.jarfile.display());
-
     let jarfile = cli.jarfile;
     let jarfile = File::open(jarfile)?;
 
@@ -117,8 +116,6 @@ fn main() -> anyhow::Result<()> {
     let mut visitor = EnumVisitor::new();
     list_zip_contents(jarfile, &ClassSource::Root, &evaluator, &mut visitor)?;
 
-    println!("Found {} enums", visitor.enums.len());
-
-    println!("Serialized view is: {}", to_string(&visitor)?);
+    println!("{}", to_string(&visitor)?);
     Ok(())
 }

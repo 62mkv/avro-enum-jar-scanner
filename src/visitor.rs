@@ -45,11 +45,14 @@ impl<'a> EnumVisitor {
         const ENUM_MEMBER_FLAGS: AccessFlags = AccessFlags::PUBLIC
             .union(AccessFlags::STATIC)
             .union(AccessFlags::FINAL);
-        println!("Processing enum from {}", source);
         let class_name = class.this_class_name()?;
+        let already_scanned = self.enums.iter().find(|e| e.class_name.eq(class_name.to_str().unwrap())).is_some();
+        if already_scanned {
+            eprintln!("Already scanned {}", class_name.display());
+            return Ok(());
+        }
         let internal_type_name = class.this_class_name()?.to_str().ok_or(anyhow!("Error decoding type name {}", class_name.display()))?;
         let internal_type_name = format!("L{};", internal_type_name);
-        println!("Class {} is ENUM", class_name.display());
         let mut enum_members: Vec<String> = Vec::new();
         for field in class.fields()? {
             let fld: &Field = &field?;
@@ -59,7 +62,6 @@ impl<'a> EnumVisitor {
                 let descriptor: &cpool::Utf8 = pool.get(fld.descriptor())?;
                 if internal_type_name.eq(descriptor.content.to_str().unwrap_or("")) {
                     enum_members.push(field_name.content.to_str().unwrap().to_string());
-                    println!("Enum member: {}", field_name.content.display());
                 }
             }
         }
@@ -75,7 +77,6 @@ impl<'a> EnumVisitor {
                         let annotation_type: &cpool::Utf8  = pool.get(annotation?.type_())?;
                         if AVRO_GENERATED.eq(annotation_type.content.to_str().unwrap()) {
                             is_avro_generated = true;
-                            println!("Enum is AVRO-generated");
                         }
                     }
                 },
