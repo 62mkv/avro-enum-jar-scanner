@@ -1,12 +1,11 @@
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
-use std::ops::{DerefMut};
 use std::path::PathBuf;
 
 use anyhow::anyhow;
 use clap::Parser;
-use hlua::{Lua, LuaError};
+use regex::Regex;
 use noak::AccessFlags;
 use noak::reader::{cpool, Class, Field, Attribute, AttributeContent};
 
@@ -14,57 +13,30 @@ use noak::reader::{cpool, Class, Field, Attribute, AttributeContent};
 #[command(author, version, about, long_about = None)]
 struct Cli {
     /// jar-file to process
-    #[arg(short, long, value_name = "FILE")]
+    #[arg(short, long, value_name = "JAR_FILE")]
     jarfile: PathBuf,
 
-    #[arg(short, long, value_name = "LUACLASSFILTER")]
-    luaclassfilter: Option<String>,
-
-    /// Turn debugging information on
-    #[arg(short, long, action = clap::ArgAction::Count)]
-    debug: u8,
+    #[arg(short, long, value_name = "REGEX")]
+    class_name_regex: Option<Regex>
 }
 
-trait ClassNameEvaluator {
-    fn evaluate_if_class_needed(&mut self, _class_name: &str) -> anyhow::Result<bool> {
-        return Ok(true);
-    }
+struct RegexEvaluator {
+    class_name_regex: Option<Regex>
 }
 
-struct Dummy {}
-
-impl ClassNameEvaluator for Dummy {}
-
-struct LuaEvaluator<'a> {
-    executor: Lua<'a>,
-    luacode: &'a str,
-}
-
-impl<'a> LuaEvaluator<'a> {
-    pub fn new(code: &'a str) -> Self {
-        let mut res = LuaEvaluator {
-            executor: Lua::new(),
-            luacode: code,
-        };
-        res.executor.openlibs();
-        res
-    }
-}
-
-impl ClassNameEvaluator for LuaEvaluator<'_> {
-    fn evaluate_if_class_needed(&mut self, class_name: &str) -> anyhow::Result<bool> {
-        self.executor.set("classname", class_name);
-        match self.executor.execute(self.luacode) {
-            Ok(res) => anyhow::Ok(res),
-            Err(LuaError::ExecutionError(error)) => Err(anyhow!("Error executing Lua code {}", error)),
-            Err(LuaError::SyntaxError(error)) => Err(anyhow!("Error executing Lua code {}", error)),
-            Err(LuaError::ReadError(error)) => Err(anyhow!("Error executing Lua code {}", error)),
-            Err(LuaError::WrongType) => Err(anyhow!("Error executing Lua code: wrong type")),
+impl RegexEvaluator {
+    pub fn new(class_name_regex: Option<Regex>) -> Self {
+        RegexEvaluator {
+            class_name_regex
         }
     }
+
+    fn evaluate_if_class_needed(&self, class_name: &str) -> anyhow::Result<bool> {
+        Ok(self.class_name_regex.as_ref().map(|r| r.is_match(class_name)).unwrap_or(false))
+    }
 }
 
-fn list_zip_contents(reader: impl Read + Seek, jarname: &str, class_name_evaluator: &mut dyn ClassNameEvaluator) -> anyhow::Result<()> {
+fn list_zip_contents(reader: impl Read + Seek, jarname: &str, class_name_evaluator: &RegexEvaluator) -> anyhow::Result<()> {
     let mut zip = zip::ZipArchive::new(reader)?;
 
     for i in 0..zip.len() {
@@ -143,12 +115,8 @@ fn main() -> anyhow::Result<()> {
     let jarfile = File::open(jarfile)?;
 
 
-    let mut evaluator: Box<dyn ClassNameEvaluator> =
-        match cli.luaclassfilter.as_ref() {
-            Some(code) => Box::new(LuaEvaluator::new(code)),
-            None => Box::new(Dummy {})
-        };
+    let evaluator = RegexEvaluator::new(cli.class_name_regex);
 
-    list_zip_contents(jarfile, "root", evaluator.deref_mut())?;
+    list_zip_contents(jarfile, "root", &evaluator)?;
     Ok(())
 }

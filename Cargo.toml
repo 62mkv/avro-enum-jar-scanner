@@ -9,6 +9,5 @@ edition = "2021"
 clap = { version = "4.0.8", features = ["derive"]}
 zip = "0.5"
 anyhow = "1.0"
-tempdir = "0.3.7"
-hlua = "0.3"
 noak = "0.5.0"
+regex = "1.6.0"
