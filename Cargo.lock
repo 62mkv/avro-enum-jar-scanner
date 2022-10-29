@@ -53,6 +53,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
+name = "avro-enum-jar-scanner"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "noak",
+ "regex",
+ "serde",
+ "serde_json",
+ "zip",
+]
+
+[[package]]
 name = "base64ct"
 version = "1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -280,19 +293,6 @@ name = "itoa"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4217ad341ebadf8d8e724e264f13e593e0648f5b3e94b3896a5df283be015ecc"
-
-[[package]]
-name = "jar-scanner"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "noak",
- "regex",
- "serde",
- "serde_json",
- "zip",
-]
 
 [[package]]
 name = "jobserver"

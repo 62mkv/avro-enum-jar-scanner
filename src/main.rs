@@ -117,6 +117,6 @@ fn main() -> anyhow::Result<()> {
     let mut visitor = EnumVisitor::new();
     list_zip_contents(jarfile, &ClassSource::Root, &evaluator, &mut visitor)?;
 
-    println!("{}", to_string(&visitor)?);
+    println!("{}", to_string(&visitor.enums)?);
     Ok(())
 }

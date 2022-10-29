@@ -1,11 +1,10 @@
 use anyhow::anyhow;
 use noak::AccessFlags;
 use noak::reader::{Attribute, AttributeContent, Class, cpool, Field};
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use std::fmt::{Display, Formatter};
 use std::fmt;
 
-#[derive(Serialize)]
 pub enum ClassSource {
     Root,
     NestedJar(String)
@@ -28,7 +27,19 @@ pub struct EnumVisited {
     source: ClassSource
 }
 
-#[derive(Serialize)]
+impl Serialize for ClassSource {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        match self {
+            ClassSource::Root => {
+                serializer.serialize_str("root")
+            },
+            ClassSource::NestedJar(ref name) => {
+                serializer.serialize_str(name)
+            }
+        }
+    }
+}
+
 pub struct EnumVisitor {
     pub enums: Vec<EnumVisited>
 }
