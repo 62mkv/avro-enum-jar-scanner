@@ -30,20 +30,24 @@ or, using short command names, as
 
 `avro-enum-jar-scanner[.exe] -j path/to/my.jar -c ^com/example/.*$`
 
+Let's compile the project from [here](https://github.com/62mkv/sb-avro-enum-demo), using `gradlew bootJar`, and then apply command as
+
+```
+avro-enum-jar-scanner -j path\sb-avro-enum\server\build\libs\server-1.0-SNAPSHOT.jar -c ^org/example/.*$
+```
+
 If all goes well, it should produce JSON output similar to this one: 
 
 ```json
 [
   {
-    "class_name": "org/example/avro/OAuthStatus",
+    "class_name": "org/example/demo/Fruit",
     "members": [
-      "PENDING",
-      "ACTIVE",
-      "DENIED",
-      "EXPIRED",
-      "REVOKED"
+      "APPLE",
+      "BANANA",
+      "CHOKEBERRY"
     ],
-    "avro_generated": true,
+    "avro_generated": false,
     "source": "root"
   },
   {
@@ -59,16 +63,6 @@ If all goes well, it should produce JSON output similar to this one:
     "source": "root"
   },
   {
-    "class_name": "org/example/demo/Fruit",
-    "members": [
-      "APPLE",
-      "BANANA",
-      "CHOKEBERRY"
-    ],
-    "avro_generated": false,
-    "source": "root"
-  },
-  {
     "class_name": "org/example/demo/Vehicle",
     "members": [
       "CAR",
@@ -79,6 +73,68 @@ If all goes well, it should produce JSON output similar to this one:
     ],
     "avro_generated": false,
     "source": "root"
+  },
+  {
+    "class_name": "org/example/avro/OAuthStatus",
+    "members": [
+      "PENDING",
+      "ACTIVE",
+      "DENIED",
+      "EXPIRED",
+      "REVOKED"
+    ],
+    "avro_generated": true,
+    "source": "root"
+  },
+  {
+    "class_name": "org/example/avro/AuthStatus",
+    "members": [
+      "PENDING",
+      "ACTIVE",
+      "DENIED",
+      "EXPIRED",
+      "REVOKED"
+    ],
+    "avro_generated": true,
+    "source": "BOOT-INF/lib/client-1.0.0.jar"
+  },
+  {
+    "class_name": "org/example/demo/Book",
+    "members": [
+      "JOURNAL",
+      "MAGAZINE",
+      "NOTEPAD",
+      "DIARY"
+    ],
+    "avro_generated": false,
+    "source": "BOOT-INF/lib/client-1.0.0.jar"
+  },
+  {
+    "class_name": "org/example/demo/Magazine",
+    "members": [
+      "TM",
+      "AJALUGU",
+      "INIMENE",
+      "MARIE"
+    ],
+    "avro_generated": false,
+    "source": "BOOT-INF/lib/other-client-1.0.0.jar"
   }
 ]
 ```
+
+Plus it will produce this output in `stderr`: 
+```
+Already scanned org/example/avro/OAuthStatus
+Already scanned org/example/avro/ToDoStatus
+Already scanned org/example/demo/Fruit
+Already scanned org/example/demo/Vehicle
+Already scanned org/example/demo/Book
+Already scanned org/example/demo/Fruit
+Already scanned org/example/demo/Vehicle
+```
+
+Here, we see that: 
+1) files from the `BOOT-INF\classes` take precedence over "libraries", so, when class with same FQCN is observed from the _nested JAR_, it is ignored and warning is printed out.
+2) order of dependencies _IS RESPECTED_ (see explanation [here](https://docs.spring.io/spring-boot/docs/current/reference/htmlsingle/#appendix.executable-jar.nested-jars.classpath-index)), in other words, when enum with same FQCN was observed already in `BOOT-INF/classes` or other visited dependency, it is ignored and warning is printed out.
+3) "source" field for the observed enum indicates, where the enum is scanned from: `root` means `BOOT-INF/classes` i.e. application's own code, while anything else (full path inside a Boot JAR archive) indicates library's nested JAR. This might be helpful for debugging purposes. 
