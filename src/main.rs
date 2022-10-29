@@ -1,17 +1,20 @@
-mod evaluator;
-
+use std::fmt::{Display, Formatter};
+use std::fmt;
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
 use std::path::PathBuf;
-use std::fmt::{Display, Formatter};
-use std::fmt;
+
 use anyhow::anyhow;
+use clap::builder::Str;
 use clap::Parser;
-use regex::Regex;
 use noak::AccessFlags;
-use noak::reader::{cpool, Class, Field, Attribute, AttributeContent};
+use noak::reader::{Attribute, AttributeContent, Class, cpool, Field};
+use regex::Regex;
+
 use evaluator::RegexEvaluator;
+
+mod evaluator;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -24,39 +27,39 @@ struct Cli {
     class_name_regex: Option<Regex>
 }
 
-enum ClassSource<'a> {
+enum ClassSource {
     Root,
-    NestedJar(&'a str)
+    NestedJar(String)
 }
 
-impl <'a>Display for ClassSource<'a> {
+impl Display for ClassSource {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             ClassSource::Root => { write!(f, "root") },
-            ClassSource::NestedJar(ref jarname) => { write!(f, "{}", jarname)}
+            ClassSource::NestedJar(ref jar_name) => { write!(f, "{}", jar_name)}
         }
     }
 }
 
-struct EnumVisited<'a> {
-    class_name: &'a str,
-    members: Vec<&'a str>,
+struct EnumVisited {
+    class_name: String,
+    members: Vec<String>,
     avro_generated: bool,
-    source: &'a ClassSource<'a>
+    source: ClassSource
 }
 
-struct EnumVisitor<'a> {
-    enums: Vec<EnumVisited<'a>>
+struct EnumVisitor {
+    enums: Vec<EnumVisited>
 }
 
-impl <'a>EnumVisitor<'a> {
+impl<'a> EnumVisitor {
     pub fn new() -> Self {
         EnumVisitor {
             enums: Vec::new()
         }
     }
 
-    pub fn visit_enum(self: &mut EnumVisitor<'a>, class: &'a mut Class<'a>, source: &'a ClassSource<'a>) -> anyhow::Result<()> {
+    pub fn visit_enum(self: &mut EnumVisitor, class: &'a mut Class<'a>, source: &'a ClassSource) -> anyhow::Result<()> {
         const AVRO_GENERATED: &str = "Lorg/apache/avro/specific/AvroGenerated;";
         const ENUM_MEMBER_FLAGS: AccessFlags = AccessFlags::PUBLIC
             .union(AccessFlags::STATIC)
@@ -66,7 +69,7 @@ impl <'a>EnumVisitor<'a> {
         let internal_type_name = class.this_class_name()?.to_str().ok_or(anyhow!("Error decoding type name {}", class_name.display()))?;
         let internal_type_name = format!("L{};", internal_type_name);
         println!("Class {} is ENUM", class_name.display());
-        let mut enum_members: Vec<&str> = Vec::new();
+        let mut enum_members: Vec<String> = Vec::new();
         for field in class.fields()? {
             let fld: &Field = &field?;
             if fld.access_flags().contains(ENUM_MEMBER_FLAGS) {
@@ -74,7 +77,7 @@ impl <'a>EnumVisitor<'a> {
                 let field_name: &cpool::Utf8 = pool.get(fld.name())?;
                 let descriptor: &cpool::Utf8 = pool.get(fld.descriptor())?;
                 if internal_type_name.eq(descriptor.content.to_str().unwrap_or("")) {
-                    enum_members.push(field_name.content.to_str().unwrap());
+                    enum_members.push(field_name.content.to_str().unwrap().to_string());
                     println!("Enum member: {}", field_name.content.display());
                 }
             }
@@ -99,8 +102,13 @@ impl <'a>EnumVisitor<'a> {
             }
         }
 
+        let source = match source {
+            ClassSource::Root => { ClassSource::Root },
+            ClassSource::NestedJar(filename) => { ClassSource::NestedJar(String::from(filename))}
+        };
+
         let enum_visited = EnumVisited {
-            class_name: class_name.to_str().unwrap(),
+            class_name: String::from(class_name.to_str().unwrap()),
             members: enum_members,
             avro_generated: is_avro_generated,
             source
@@ -111,7 +119,7 @@ impl <'a>EnumVisitor<'a> {
     }
 }
 
-fn list_zip_contents(reader: impl Read + Seek, source: ClassSource, class_name_evaluator: &RegexEvaluator, enum_visitor: &mut EnumVisitor) -> anyhow::Result<()> {
+fn list_zip_contents(reader: impl Read + Seek, source: &ClassSource, class_name_evaluator: &RegexEvaluator, enum_visitor: &mut EnumVisitor) -> anyhow::Result<()> {
     let mut zip = zip::ZipArchive::new(reader)?;
 
     for i in 0..zip.len() {
@@ -129,12 +137,12 @@ fn list_zip_contents(reader: impl Read + Seek, source: ClassSource, class_name_e
                 let mut class = Class::new(&*data)?;
                 let is_enum = class.access_flags()?.contains(AccessFlags::ENUM);
                 if is_enum {
-                    enum_visitor.visit_enum(&mut class, &source)?;
+                    enum_visitor.visit_enum(&mut class, source)?;
                 }
             } else if class_file_name.ends_with(".jar") {
                 let mut data = Vec::new();
                 file.read_to_end(&mut data)?;
-                list_zip_contents(io::Cursor::new(data), ClassSource::NestedJar(file.name()), class_name_evaluator, enum_visitor)?;
+                list_zip_contents(io::Cursor::new(data), &ClassSource::NestedJar(String::from(file.name())), class_name_evaluator, enum_visitor)?;
             }
         }
     }
@@ -154,6 +162,8 @@ fn main() -> anyhow::Result<()> {
     let evaluator = RegexEvaluator::new(cli.class_name_regex);
 
     let mut visitor = EnumVisitor::new();
-    list_zip_contents(jarfile, ClassSource::Root, &evaluator, &mut visitor)?;
+    list_zip_contents(jarfile, &ClassSource::Root, &evaluator, &mut visitor)?;
+
+    println!("Found {} enums", visitor.enums.len());
     Ok(())
 }
