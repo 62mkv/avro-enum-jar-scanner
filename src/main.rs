@@ -69,9 +69,10 @@ fn list_zip_contents(reader: impl Read + Seek, class_name_evaluator: &mut dyn Cl
 
     for i in 0..zip.len() {
         let mut file = zip.by_index(i)?;
-        println!("Visiting file {}", file.name());
         if file.is_file() {
-            if file.name().ends_with(".class") && class_name_evaluator.evaluate_if_class_needed(file.name())? {
+            let class_file_name = &(file.name().to_owned());
+            let class_file_name = class_file_name.trim_start_matches("BOOT-INF/classes/");
+            if class_file_name.ends_with(".class") && class_name_evaluator.evaluate_if_class_needed(class_file_name)? {
                 let mut data = Vec::new();
                 file.read_to_end(&mut data)?;
                 let mut class = Class::new(&*data)?;
@@ -79,14 +80,10 @@ fn list_zip_contents(reader: impl Read + Seek, class_name_evaluator: &mut dyn Cl
                 if is_enum {
                     process_enum(&mut class)?;
                 }
-            } else if file.name().ends_with(".jar") {
-                println!("Parsing internal JAR: {}", file.name());
+            } else if class_file_name.ends_with(".jar") {
                 let mut data = Vec::new();
                 file.read_to_end(&mut data)?;
                 list_zip_contents(io::Cursor::new(data), class_name_evaluator)?;
-                println!("---Leaving JAR {} ---", file.name());
-            } else {
-                println!("Ignored file: {}", file.name());
             }
         }
     }
