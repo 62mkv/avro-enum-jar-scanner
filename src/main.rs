@@ -8,7 +8,7 @@ use anyhow::anyhow;
 use clap::Parser;
 use hlua::{Lua, LuaError};
 use noak::AccessFlags;
-use noak::reader::{cpool, Class, Field};
+use noak::reader::{cpool, Class, Field, Attribute, AttributeContent};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -69,6 +69,7 @@ fn list_zip_contents(reader: impl Read + Seek, class_name_evaluator: &mut dyn Cl
 
     for i in 0..zip.len() {
         let mut file = zip.by_index(i)?;
+        println!("Visiting file {}", file.name());
         if file.is_file() {
             if file.name().ends_with(".class") && class_name_evaluator.evaluate_if_class_needed(file.name())? {
                 let mut data = Vec::new();
@@ -79,9 +80,13 @@ fn list_zip_contents(reader: impl Read + Seek, class_name_evaluator: &mut dyn Cl
                     process_enum(&mut class)?;
                 }
             } else if file.name().ends_with(".jar") {
+                println!("Parsing internal JAR: {}", file.name());
                 let mut data = Vec::new();
                 file.read_to_end(&mut data)?;
                 list_zip_contents(io::Cursor::new(data), class_name_evaluator)?;
+                println!("---Leaving JAR {} ---", file.name());
+            } else {
+                println!("Ignored file: {}", file.name());
             }
         }
     }
@@ -90,6 +95,7 @@ fn list_zip_contents(reader: impl Read + Seek, class_name_evaluator: &mut dyn Cl
 }
 
 fn process_enum(class: &mut Class) -> anyhow::Result<()> {
+    const AVRO_GENERATED: &str = "Lorg/apache/avro/specific/AvroGenerated;";
     const ENUM_MEMBER_FLAGS: AccessFlags = AccessFlags::PUBLIC
         .union(AccessFlags::STATIC)
         .union(AccessFlags::FINAL);
@@ -103,8 +109,27 @@ fn process_enum(class: &mut Class) -> anyhow::Result<()> {
             let pool = class.pool()?;
             let field_name: &cpool::Utf8 = pool.get(fld.name())?;
             let descriptor: &cpool::Utf8 = pool.get(fld.descriptor())?;
-            if internal_type_name.eq(descriptor.content.to_str().unwrap_or("")) {}
-            println!("Enum member: {}", field_name.content.display());
+            if internal_type_name.eq(descriptor.content.to_str().unwrap_or("")) {
+                println!("Enum member: {}", field_name.content.display());
+            }
+        }
+    }
+
+    for attr in class.attributes()? {
+        let attribute: &Attribute = &attr?;
+        let pool = class.pool()?;
+        let attr_content = attribute.read_content(pool)?;
+        match attr_content {
+            AttributeContent::RuntimeInvisibleAnnotations(annotations)
+            | AttributeContent::RuntimeVisibleAnnotations(annotations) => {
+                for annotation in annotations.iter() {
+                    let annotation_type: &cpool::Utf8  = pool.get(annotation?.type_())?;
+                    if AVRO_GENERATED.eq(annotation_type.content.to_str().unwrap()) {
+                        println!("Enum is AVRO-generated");
+                    }
+                }
+            },
+            _ => {}
         }
     }
 
