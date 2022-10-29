@@ -7,6 +7,8 @@ use hlua::{Lua, LuaError};
 use anyhow::anyhow;
 use std::io::prelude::*;
 use std::ops::DerefMut;
+use noak::reader::Class;
+use noak::AccessFlags;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -79,30 +81,21 @@ fn list_zip_contents(reader: impl Read + Seek, tmp_dir: &TempDir, class_name_eva
 
     for i in 0..zip.len() {
         let mut file = zip.by_index(i)?;
-        if file.is_file() {
+        if file.is_file() && file.name().ends_with(".class") {
             if class_name_evaluator.evaluate_if_class_needed(file.name())? {
-                let path_to_extract = tmp_dir.path().join(file.mangled_name());
-                println!("Filename: {} is extracted to {}", file.name(), path_to_extract.display());
-                match path_to_extract.parent() {
-                    Some(path) => {
-                        println!("Will try to create path {}", path.display());
-                        create_dir_all(path)?;
-                    }
-                    None => {}
-                }
-                println!("About to create tmp file");
-                let mut target = File::create(path_to_extract)?;
+//                println!("Looking at file: {}", file.name());
                 let mut data = Vec::new();
-                println!("About to read from zip");
                 file.read_to_end(&mut data)?;
-                println!("About to write to tmp");
-                target.write_all(&data)?;
+                let mut class = Class::new(&*data)?;
+                let class_name = class.this_class_name()?.display();
+                let is_enum = class.access_flags()?.contains(AccessFlags::ENUM);
+                if is_enum {
+                    println!("Class {} is ENUM", class_name);
+                }
             }
         }
     }
 
-
-    pause();
     Ok(())
 }
 
