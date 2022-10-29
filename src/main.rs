@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
-use std::ops::DerefMut;
+use std::ops::{DerefMut};
 use std::path::PathBuf;
 
 use anyhow::anyhow;
@@ -64,7 +64,7 @@ impl ClassNameEvaluator for LuaEvaluator<'_> {
     }
 }
 
-fn list_zip_contents(reader: impl Read + Seek, class_name_evaluator: &mut dyn ClassNameEvaluator) -> anyhow::Result<()> {
+fn list_zip_contents(reader: impl Read + Seek, jarname: &str, class_name_evaluator: &mut dyn ClassNameEvaluator) -> anyhow::Result<()> {
     let mut zip = zip::ZipArchive::new(reader)?;
 
     for i in 0..zip.len() {
@@ -78,12 +78,13 @@ fn list_zip_contents(reader: impl Read + Seek, class_name_evaluator: &mut dyn Cl
                 let mut class = Class::new(&*data)?;
                 let is_enum = class.access_flags()?.contains(AccessFlags::ENUM);
                 if is_enum {
+                    println!("Processing enum from {}", jarname);
                     process_enum(&mut class)?;
                 }
             } else if class_file_name.ends_with(".jar") {
                 let mut data = Vec::new();
                 file.read_to_end(&mut data)?;
-                list_zip_contents(io::Cursor::new(data), class_name_evaluator)?;
+                list_zip_contents(io::Cursor::new(data), file.name(), class_name_evaluator)?;
             }
         }
     }
@@ -148,6 +149,6 @@ fn main() -> anyhow::Result<()> {
             None => Box::new(Dummy {})
         };
 
-    list_zip_contents(jarfile, evaluator.deref_mut())?;
+    list_zip_contents(jarfile, "root", evaluator.deref_mut())?;
     Ok(())
 }
